@@ -29,7 +29,7 @@ const ParticleSystem: React.FC<{
       const i3 = i * 3;
       
       // 初始位置（管道入口附近）
-      positions[i3] = (Math.random() - 0.5) * 0.5; // x
+      positions[i3] = -5; // x (入口)
       positions[i3 + 1] = (Math.random() - 0.5) * diameter; // y
       positions[i3 + 2] = (Math.random() - 0.5) * diameter; // z
       
@@ -131,7 +131,7 @@ const ParticleSystem: React.FC<{
 // 管道组件
 const Pipe: React.FC<{ diameter: number }> = ({ diameter }) => {
   return (
-    <group>
+    <group rotation={[0, 0, Math.PI / 2]}>
       {/* 管道外壁 */}
       <mesh>
         <cylinderGeometry args={[diameter / 2 + 0.02, diameter / 2 + 0.02, 10, 32]} />

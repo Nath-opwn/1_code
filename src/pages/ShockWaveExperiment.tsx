@@ -1,502 +1,465 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
+import ShockWaveSimulation from '@/components/3D/ShockWaveSimulation';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/slider';
+import { Badge } from '@/components/ui/badge';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-interface ShockData {
-  x: number;
-  y: number;
-  angle: number;
-  machBefore: number;
-  machAfter: number;
+interface ShockWaveData {
+  shockAngle: number;
+  deflectionAngle: number;
   pressureRatio: number;
+  densityRatio: number;
   temperatureRatio: number;
+  velocityRatio: number;
+  machNumberDownstream: number;
+  totalPressureLoss: number;
 }
 
 const ShockWaveExperiment: React.FC = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // 实验参数
   const [machNumber, setMachNumber] = useState(2.5);
   const [wedgeAngle, setWedgeAngle] = useState(15);
+  const [gasGamma, setGasGamma] = useState(1.4);
+  const [inletPressure, setInletPressure] = useState(101325);
+  const [inletTemperature, setInletTemperature] = useState(288);
   const [isRunning, setIsRunning] = useState(false);
-  const [particles, setParticles] = useState<Array<{x: number, y: number, vx: number, vy: number, mach: number}>>([]);
-  const [shockData, setShockData] = useState<ShockData | null>(null);
+  const [autoRotate, setAutoRotate] = useState(false);
 
-  // 气体属性
-  const gasProperties = {
-    gamma: 1.4, // 比热比
-    R: 287, // 气体常数 J/(kg·K)
-    T0: 288, // 参考温度 K
-    P0: 101325 // 参考压力 Pa
-  };
-
-  // 计算斜激波角度
-  const calculateShockAngle = (M1: number, theta: number): number => {
+  // 计算激波理论数据
+  const calculateShockWaveData = (
+    M1: number,
+    theta: number,
+    gamma: number
+  ): ShockWaveData => {
     const thetaRad = theta * Math.PI / 180;
-    const gamma = gasProperties.gamma;
     
-    // 使用迭代法求解激波角β
+    // 使用θ-β-M关系求解激波角度β
     let beta = Math.PI / 4; // 初始猜测45度
+    let iterations = 0;
+    const maxIterations = 100;
+    const tolerance = 1e-6;
     
-    for (let i = 0; i < 100; i++) {
-      const tanBeta = Math.tan(beta);
-      const tanTheta = Math.tan(thetaRad);
+    while (iterations < maxIterations) {
+      const tanTheta = 2 * (1 / Math.tan(beta)) * 
+        ((Math.pow(M1 * Math.sin(beta), 2) - 1) / 
+         (Math.pow(M1, 2) * (gamma + Math.cos(2 * beta)) + 2));
       
-      const f = 2 * (1 / tanBeta) * (M1 * M1 * Math.sin(beta) * Math.sin(beta) - 1) / 
-                (M1 * M1 * (gamma + Math.cos(2 * beta)) + 2) - tanTheta;
+      const calculatedTheta = Math.atan(tanTheta);
+      const error = Math.abs(calculatedTheta - thetaRad);
       
-      const df_dbeta = -2 * (Math.cos(beta) * Math.cos(beta)) * 
-                       (M1 * M1 * (gamma + Math.cos(2 * beta)) + 2 - 
-                        2 * M1 * M1 * Math.sin(beta) * Math.sin(beta)) /
-                       (Math.pow(M1 * M1 * (gamma + Math.cos(2 * beta)) + 2, 2));
+      if (error < tolerance) break;
       
-      const newBeta = beta - f / df_dbeta;
+      // 调整β值
+      if (calculatedTheta > thetaRad) {
+        beta -= 0.001;
+      } else {
+        beta += 0.001;
+      }
       
-      if (Math.abs(newBeta - beta) < 1e-6) break;
-      beta = newBeta;
+      iterations++;
     }
     
-    return beta * 180 / Math.PI;
-  };
+    const shockAngle = beta * 180 / Math.PI;
 
   // 计算激波后参数
-  const calculateShockProperties = (M1: number, beta: number, theta: number) => {
-    const betaRad = beta * Math.PI / 180;
-    const gamma = gasProperties.gamma;
+    const M1n = M1 * Math.sin(beta); // 激波前法向马赫数
     
-    const M1n = M1 * Math.sin(betaRad); // 激波法向马赫数
+    // Rankine-Hugoniot关系
+    const pressureRatio = 1 + (2 * gamma / (gamma + 1)) * (M1n * M1n - 1);
+    const densityRatio = ((gamma + 1) * M1n * M1n) / ((gamma - 1) * M1n * M1n + 2);
+    const temperatureRatio = pressureRatio / densityRatio;
     
     // 激波后法向马赫数
-    const M2n = Math.sqrt(
-      (M1n * M1n + 2 / (gamma - 1)) / 
-      (2 * gamma * M1n * M1n / (gamma - 1) - 1)
-    );
+    const M2n = Math.sqrt((M1n * M1n + 2 / (gamma - 1)) / (2 * gamma * M1n * M1n / (gamma - 1) - 1));
     
     // 激波后马赫数
-    const M2 = M2n / Math.sin(betaRad - theta * Math.PI / 180);
+    const machNumberDownstream = M2n / Math.sin(beta - thetaRad);
     
-    // 压力比
-    const pressureRatio = 1 + 2 * gamma / (gamma + 1) * (M1n * M1n - 1);
+    const velocityRatio = 1 / densityRatio;
     
-    // 温度比
-    const temperatureRatio = (1 + (gamma - 1) / 2 * M1n * M1n) * 
-                            (2 * gamma * M1n * M1n / (gamma - 1) - 1) / 
-                            ((gamma + 1) * (gamma + 1) * M1n * M1n / (2 * (gamma - 1)));
+    // 总压损失
+    const totalPressureLoss = 1 - Math.pow(pressureRatio * Math.pow(temperatureRatio, -gamma / (gamma - 1)), 1);
     
     return {
-      machAfter: M2,
+      shockAngle,
+      deflectionAngle: theta,
       pressureRatio,
-      temperatureRatio
+      densityRatio,
+      temperatureRatio,
+      velocityRatio,
+      machNumberDownstream,
+      totalPressureLoss
     };
   };
 
-  // 计算激波数据
-  const calculateShockData = () => {
-    if (machNumber <= 1 || wedgeAngle <= 0) {
-      setShockData(null);
-      return;
-    }
-    
-    const shockAngle = calculateShockAngle(machNumber, wedgeAngle);
-    const shockProps = calculateShockProperties(machNumber, shockAngle, wedgeAngle);
-    
-    // 激波起始点（楔形前缘）
-    const wedgeStart = { x: 200, y: 150 };
-    
-    setShockData({
-      x: wedgeStart.x,
-      y: wedgeStart.y,
-      angle: shockAngle,
-      machBefore: machNumber,
-      ...shockProps
-    });
+  // 实时计算激波数据
+  const shockData = useMemo(() => {
+    if (machNumber <= 1 || wedgeAngle <= 0) return null;
+    return calculateShockWaveData(machNumber, wedgeAngle, gasGamma);
+  }, [machNumber, wedgeAngle, gasGamma]);
+
+  // 控制函数
+  const handleStart = () => {
+    setIsRunning(true);
   };
 
-  // 初始化粒子
-  const initializeParticles = () => {
-    const newParticles = [];
-    for (let i = 0; i < 150; i++) {
-      const x = Math.random() * 100;
-      const y = 100 + Math.random() * 100;
-      newParticles.push({
-        x,
-        y,
-        vx: machNumber * 10,
-        vy: 0,
-        mach: machNumber
-      });
-    }
-    setParticles(newParticles);
+  const handleStop = () => {
+    setIsRunning(false);
   };
 
-  // 检查粒子是否穿过激波
-  const checkShockCrossing = (particle: any, newX: number, newY: number) => {
-    if (!shockData) return particle;
-    
-    const wedgeStart = { x: 200, y: 150 };
-    const shockAngleRad = shockData.angle * Math.PI / 180;
-    
-    // 激波线方程
-    const shockSlope = -Math.tan(shockAngleRad);
-    const shockIntercept = wedgeStart.y - shockSlope * wedgeStart.x;
-    
-    // 检查粒子是否从激波前方穿越到后方
-    const oldY_shock = shockSlope * particle.x + shockIntercept;
-    const newY_shock = shockSlope * newX + shockIntercept;
-    
-    if (particle.y > oldY_shock && newY < newY_shock && newX > wedgeStart.x) {
-      // 粒子穿过激波，更新参数
-      return {
-        ...particle,
-        mach: shockData.machAfter,
-        vx: shockData.machAfter * 10 * Math.cos(wedgeAngle * Math.PI / 180),
-        vy: -shockData.machAfter * 10 * Math.sin(wedgeAngle * Math.PI / 180)
-      };
-    }
-    
-    return particle;
+  const handleReset = () => {
+    setIsRunning(false);
+    setMachNumber(2.5);
+    setWedgeAngle(15);
+    setGasGamma(1.4);
+    setAutoRotate(false);
   };
 
-  // 更新粒子位置
-  const updateParticles = () => {
-    if (!isRunning) return;
-    
-    setParticles(prev => prev.map(particle => {
-      let newX = particle.x + particle.vx * 0.5;
-      let newY = particle.y + particle.vy * 0.5;
-      
-      // 重置超出边界的粒子
-      if (newX > 500 || newY < 50 || newY > 250) {
-        return {
-          x: Math.random() * 50,
-          y: 100 + Math.random() * 100,
-          vx: machNumber * 10,
-          vy: 0,
-          mach: machNumber
-        };
-      }
-      
-      // 检查激波穿越
-      const updatedParticle = checkShockCrossing(particle, newX, newY);
-      
-      // 检查楔形碰撞
-      const wedgeStart = { x: 200, y: 150 };
-      const wedgeTop = {
-        x: wedgeStart.x + 100,
-        y: wedgeStart.y - 100 * Math.tan(wedgeAngle * Math.PI / 180)
-      };
-      
-      if (newX > wedgeStart.x && newX < wedgeStart.x + 100) {
-        const wedgeY = wedgeStart.y - (newX - wedgeStart.x) * Math.tan(wedgeAngle * Math.PI / 180);
-        if (newY > wedgeY) {
-          // 粒子撞到楔形，反弹
-          return {
-            x: Math.random() * 50,
-            y: 100 + Math.random() * 100,
-            vx: machNumber * 10,
-            vy: 0,
-            mach: machNumber
-          };
-        }
-      }
-      
-      return {
-        ...updatedParticle,
-        x: newX,
-        y: newY
-      };
-    }));
-  };
-
-  // 绘制实验
-  const draw = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // 绘制楔形
-    const wedgeStart = { x: 200, y: 150 };
-    const wedgeLength = 100;
-    const wedgeTop = {
-      x: wedgeStart.x + wedgeLength,
-      y: wedgeStart.y - wedgeLength * Math.tan(wedgeAngle * Math.PI / 180)
-    };
-    
-    ctx.fillStyle = '#374151';
-    ctx.beginPath();
-    ctx.moveTo(wedgeStart.x, wedgeStart.y);
-    ctx.lineTo(wedgeTop.x, wedgeTop.y);
-    ctx.lineTo(wedgeStart.x + wedgeLength, wedgeStart.y);
-    ctx.closePath();
-    ctx.fill();
-    
-    // 绘制激波
-    if (shockData) {
-      const shockAngleRad = shockData.angle * Math.PI / 180;
-      const shockLength = 100;
-      
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(shockData.x, shockData.y);
-      ctx.lineTo(
-        shockData.x - shockLength * Math.cos(shockAngleRad),
-        shockData.y - shockLength * Math.sin(shockAngleRad)
-      );
-      ctx.stroke();
-      
-      // 激波标签
-      ctx.fillStyle = '#ef4444';
-      ctx.font = '12px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(
-        `激波角: ${shockData.angle.toFixed(1)}°`,
-        shockData.x - 40,
-        shockData.y - 20
-      );
-    }
-    
-    // 绘制粒子（根据马赫数着色）
-    particles.forEach(particle => {
-      const colorIntensity = Math.min(1, particle.mach / 3);
-      const red = Math.floor(255 * colorIntensity);
-      const blue = Math.floor(255 * (1 - colorIntensity));
-      ctx.fillStyle = `rgb(${red}, 100, ${blue})`;
-      
-      ctx.beginPath();
-      ctx.arc(particle.x, particle.y, 2, 0, 2 * Math.PI);
-      ctx.fill();
-    });
-    
-    // 绘制马赫线
-    ctx.strokeStyle = 'rgba(59, 130, 246, 0.3)';
-    ctx.lineWidth = 1;
-    const machAngle = Math.asin(1 / machNumber) * 180 / Math.PI;
-    
-    for (let x = 50; x < 200; x += 30) {
-      for (let y = 110; y < 190; y += 20) {
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + 20 * Math.cos(machAngle * Math.PI / 180), 
-                   y - 20 * Math.sin(machAngle * Math.PI / 180));
-        ctx.stroke();
-        
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + 20 * Math.cos(-machAngle * Math.PI / 180), 
-                   y - 20 * Math.sin(-machAngle * Math.PI / 180));
-        ctx.stroke();
-      }
-    }
-    
-    // 绘制流动方向
-    ctx.fillStyle = '#1f2937';
-    ctx.font = '14px Arial';
-    ctx.textAlign = 'left';
-    ctx.fillText(`M = ${machNumber}`, 20, 30);
-    ctx.fillText('→', 50, 130);
-    
-    // 绘制压力等值线（简化）
-    if (shockData) {
-      ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
-      ctx.lineWidth = 1;
-      
-      // 激波后高压区
-      for (let i = 0; i < 5; i++) {
-        ctx.beginPath();
-        ctx.arc(wedgeStart.x + 50, wedgeStart.y - 20, 10 + i * 8, 0, 2 * Math.PI);
-        ctx.stroke();
-      }
-    }
-  };
-
-  useEffect(() => {
-    calculateShockData();
-    initializeParticles();
-  }, [machNumber, wedgeAngle]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      updateParticles();
-      draw();
-    }, 50);
-
-    return () => clearInterval(interval);
-  }, [isRunning, particles, shockData]);
-
-  useEffect(() => {
-    draw();
-  }, [shockData]);
+  // 准备图表数据
+  const chartData = shockData ? [
+    { parameter: '激波角', value: shockData.shockAngle, unit: '°' },
+    { parameter: '压力比', value: shockData.pressureRatio, unit: '' },
+    { parameter: '密度比', value: shockData.densityRatio, unit: '' },
+    { parameter: '温度比', value: shockData.temperatureRatio, unit: '' },
+    { parameter: '下游马赫数', value: shockData.machNumberDownstream, unit: '' }
+  ] : [];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 p-6">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-indigo-900 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* 标题 */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          className="text-center mb-8"
+          initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
-          className="text-center mb-8"
         >
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">激波实验</h1>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            观察超声速流动中的激波现象，理解激波的形成机理和流动参数跳跃
+          <h1 className="text-4xl font-bold text-white mb-4">激波实验</h1>
+          <p className="text-xl text-gray-300 max-w-3xl mx-auto">
+            探索超声速流动中的激波现象，理解激波的形成机制和参数变化规律
           </p>
+          <div className="flex justify-center gap-2 mt-4">
+            <Badge variant="secondary">超声速流动</Badge>
+            <Badge variant="secondary">激波理论</Badge>
+            <Badge variant="secondary">3D可视化</Badge>
+          </div>
         </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* 控制面板 */}
           <motion.div
+            className="lg:col-span-1"
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="bg-white rounded-xl shadow-lg p-6"
           >
-            <h3 className="text-xl font-semibold mb-4 text-gray-800">实验控制</h3>
-            
-            <div className="space-y-6">
+            <Card className="bg-gray-800/50 border-gray-700 text-white">
+              <CardHeader>
+                <CardTitle className="text-white">实验参数</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* 马赫数控制 */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    马赫数: {machNumber.toFixed(2)}
+                  </label>
+                  <Slider
+                    value={[machNumber]}
+                    onValueChange={(value) => setMachNumber(value[0])}
+                    min={1.1}
+                    max={5.0}
+                    step={0.1}
+                    className="w-full"
+                  />
+                  <div className="text-xs text-gray-400 mt-1">
+                    范围: 1.1 - 5.0
+                  </div>
+                </div>
+
+                {/* 楔形角度 */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    楔形角度: {wedgeAngle.toFixed(1)}°
+                  </label>
+                  <Slider
+                    value={[wedgeAngle]}
+                    onValueChange={(value) => setWedgeAngle(value[0])}
+                    min={5}
+                    max={40}
+                    step={1}
+                    className="w-full"
+                  />
+                  <div className="text-xs text-gray-400 mt-1">
+                    范围: 5° - 40°
+                  </div>
+                </div>
+
+                {/* 比热比 */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    比热比: {gasGamma.toFixed(2)}
+                  </label>
+                  <Slider
+                    value={[gasGamma]}
+                    onValueChange={(value) => setGasGamma(value[0])}
+                    min={1.1}
+                    max={1.8}
+                    step={0.01}
+                    className="w-full"
+                  />
+                  <div className="text-xs text-gray-400 mt-1">
+                    空气: 1.4, 氦气: 1.67
+                  </div>
+                </div>
+
+                {/* 进口压力 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  来流马赫数: {machNumber}
+                  <label className="block text-sm font-medium mb-2">
+                    进口压力: {(inletPressure / 1000).toFixed(1)} kPa
                 </label>
-                <input
-                  type="range"
-                  min="1.1"
-                  max="5"
-                  step="0.1"
-                  value={machNumber}
-                  onChange={(e) => setMachNumber(Number(e.target.value))}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  <Slider
+                    value={[inletPressure]}
+                    onValueChange={(value) => setInletPressure(value[0])}
+                    min={50000}
+                    max={500000}
+                    step={1000}
+                    className="w-full"
                 />
               </div>
 
+                {/* 进口温度 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  楔形角度 (°): {wedgeAngle}
+                  <label className="block text-sm font-medium mb-2">
+                    进口温度: {inletTemperature.toFixed(0)} K
                 </label>
-                <input
-                  type="range"
-                  min="5"
-                  max="30"
-                  value={wedgeAngle}
-                  onChange={(e) => setWedgeAngle(Number(e.target.value))}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  <Slider
+                    value={[inletTemperature]}
+                    onValueChange={(value) => setInletTemperature(value[0])}
+                    min={200}
+                    max={400}
+                    step={1}
+                    className="w-full"
                 />
               </div>
 
-              <button
-                onClick={() => setIsRunning(!isRunning)}
-                className={`w-full py-3 px-4 rounded-lg font-medium transition-colors ${
-                  isRunning
-                    ? 'bg-red-500 hover:bg-red-600 text-white'
-                    : 'bg-green-500 hover:bg-green-600 text-white'
-                }`}
-              >
-                {isRunning ? '停止实验' : '开始实验'}
-              </button>
+                {/* 控制按钮 */}
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={handleStart} 
+                    disabled={isRunning}
+                    className="flex-1"
+                  >
+                    开始
+                  </Button>
+                  <Button 
+                    onClick={handleStop} 
+                    disabled={!isRunning}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    停止
+                  </Button>
+                  <Button 
+                    onClick={handleReset}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    重置
+                  </Button>
             </div>
 
-            {/* 理论说明 */}
-            <div className="mt-6 p-4 bg-red-50 rounded-lg">
-              <h4 className="font-semibold text-red-800 mb-2">理论基础</h4>
-              <div className="text-sm text-red-700 space-y-2">
-                <p><strong>马赫角:</strong> μ = arcsin(1/M)</p>
-                <p><strong>激波角:</strong> β {'>'} μ</p>
-                <p><strong>压力跳跃:</strong> P₂/P₁ {'>'} 1</p>
-                <p><strong>温度跳跃:</strong> T₂/T₁ {'>'} 1</p>
+                {/* 显示选项 */}
+                <div>
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={autoRotate}
+                      onChange={(e) => setAutoRotate(e.target.checked)}
+                    />
+                    <span className="text-sm">自动旋转</span>
+                  </label>
               </div>
-            </div>
+              </CardContent>
+            </Card>
           </motion.div>
 
-          {/* 实验可视化 */}
+          {/* 主要可视化区域 */}
           <motion.div
+            className="lg:col-span-2"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.4 }}
-            className="lg:col-span-2 bg-white rounded-xl shadow-lg p-6"
           >
-            <h3 className="text-xl font-semibold mb-4 text-gray-800">激波可视化</h3>
-            <canvas
-              ref={canvasRef}
-              width={500}
-              height={300}
-              className="border border-gray-200 rounded-lg w-full"
-            />
-            
-            <div className="mt-4 text-sm text-gray-600">
-              <div className="flex items-center gap-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-gradient-to-r from-red-500 to-blue-500 rounded-full"></div>
-                  <span>流体粒子 (按马赫数着色)</span>
+            <Card className="bg-gray-800/50 border-gray-700">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center justify-between">
+                  <span>激波3D可视化</span>
+                  {isRunning && (
+                    <Badge className="bg-green-500 text-white">
+                      运行中
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="h-[500px] relative">
+                  <ShockWaveSimulation
+                    machNumber={machNumber}
+                    wedgeAngle={wedgeAngle}
+                    gasGamma={gasGamma}
+                    inletPressure={inletPressure}
+                    inletTemperature={inletTemperature}
+                    autoRotate={autoRotate}
+                    className="w-full h-full"
+                  />
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-1 bg-red-500"></div>
-                  <span>激波</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-1 bg-blue-300"></div>
-                  <span>马赫线</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-1 bg-gray-600"></div>
-                  <span>楔形体</span>
+              </CardContent>
+            </Card>
+
+            {/* 参数变化图表 */}
+            {shockData && (
+              <Card className="mt-4 bg-gray-800/50 border-gray-700">
+                <CardHeader>
+                  <CardTitle className="text-white">激波参数分析</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis 
+                        dataKey="parameter" 
+                        stroke="#9CA3AF"
+                        angle={-45}
+                        textAnchor="end"
+                        height={80}
+                      />
+                      <YAxis stroke="#9CA3AF" />
+                      <Tooltip 
+                        contentStyle={{
+                          backgroundColor: '#1F2937',
+                          border: '1px solid #374151',
+                          borderRadius: '8px',
+                          color: '#F9FAFB'
+                        }}
+                        formatter={(value, name) => [
+                          typeof value === 'number' ? value.toFixed(3) : value, 
+                          '数值'
+                        ]}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="value" 
+                        stroke="#3B82F6" 
+                        strokeWidth={3}
+                        dot={{ fill: '#3B82F6', strokeWidth: 2, r: 5 }}
+                        activeDot={{ r: 8, fill: '#60A5FA' }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+          </motion.div>
+
+          {/* 数据面板 */}
+          <motion.div
+            className="lg:col-span-1"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, delay: 0.6 }}
+          >
+            <Card className="bg-gray-800/50 border-gray-700 text-white">
+              <CardHeader>
+                <CardTitle className="text-white">计算结果</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {shockData ? (
+                  <>
+                    <div className="p-3 bg-blue-900/30 rounded-lg border border-blue-700">
+                      <div className="text-sm text-blue-300">激波角</div>
+                      <div className="text-lg font-semibold text-white">
+                        {shockData.shockAngle.toFixed(2)}°
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-green-900/30 rounded-lg border border-green-700">
+                      <div className="text-sm text-green-300">压力比 P₂/P₁</div>
+                      <div className="text-lg font-semibold text-white">
+                        {shockData.pressureRatio.toFixed(3)}
                 </div>
               </div>
+              
+                    <div className="p-3 bg-yellow-900/30 rounded-lg border border-yellow-700">
+                      <div className="text-sm text-yellow-300">密度比 ρ₂/ρ₁</div>
+                      <div className="text-lg font-semibold text-white">
+                        {shockData.densityRatio.toFixed(3)}
+                </div>
+              </div>
+              
+                    <div className="p-3 bg-red-900/30 rounded-lg border border-red-700">
+                      <div className="text-sm text-red-300">温度比 T₂/T₁</div>
+                      <div className="text-lg font-semibold text-white">
+                        {shockData.temperatureRatio.toFixed(3)}
+                </div>
+              </div>
+              
+                    <div className="p-3 bg-purple-900/30 rounded-lg border border-purple-700">
+                      <div className="text-sm text-purple-300">下游马赫数</div>
+                      <div className="text-lg font-semibold text-white">
+                        {shockData.machNumberDownstream.toFixed(3)}
+              </div>
             </div>
+
+                    <div className="p-3 bg-gray-700/30 rounded-lg border border-gray-600">
+                      <div className="text-sm text-gray-300">总压损失</div>
+                      <div className="text-lg font-semibold text-white">
+                        {(shockData.totalPressureLoss * 100).toFixed(2)}%
+              </div>
+            </div>
+                  </>
+                ) : (
+                  <div className="text-center text-gray-400 py-8">
+                    <p>请设置马赫数 &gt; 1 以查看激波数据</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 理论说明 */}
+            <Card className="mt-4 bg-gray-800/50 border-gray-700 text-white">
+              <CardHeader>
+                <CardTitle className="text-white">理论基础</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-sm text-gray-300 space-y-2">
+                  <p><strong>激波关系式:</strong></p>
+                  <p className="font-mono text-xs">
+                    θ-β-M 关系<br/>
+                    Rankine-Hugoniot 方程
+                  </p>
+                  
+                  <p><strong>关键参数:</strong></p>
+                  <ul className="text-xs space-y-1">
+                                         <li>• 激波角 β</li>
+                     <li>• 偏转角 θ</li>
+                     <li>• 马赫数 M</li>
+                     <li>• 比热比 γ</li>
+                  </ul>
+                  
+                  <p><strong>应用领域:</strong></p>
+                  <ul className="text-xs space-y-1">
+                    <li>• 超声速飞行器设计</li>
+                    <li>• 激波风洞实验</li>
+                    <li>• 火箭发动机喷管</li>
+                  </ul>
+                </div>
+              </CardContent>
+            </Card>
           </motion.div>
         </div>
-
-        {/* 数据分析 */}
-        {shockData && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.6 }}
-            className="mt-8 bg-white rounded-xl shadow-lg p-6"
-          >
-            <h3 className="text-xl font-semibold mb-4 text-gray-800">激波参数分析</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="text-center p-4 bg-red-50 rounded-lg">
-                <div className="text-2xl font-bold text-red-600">
-                  {shockData.angle.toFixed(1)}°
-                </div>
-                <div className="text-sm text-gray-600">激波角</div>
-              </div>
-              
-              <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">
-                  {shockData.machAfter.toFixed(2)}
-                </div>
-                <div className="text-sm text-gray-600">激波后马赫数</div>
-              </div>
-              
-              <div className="text-center p-4 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">
-                  {shockData.pressureRatio.toFixed(2)}
-                </div>
-                <div className="text-sm text-gray-600">压力比 P₂/P₁</div>
-              </div>
-              
-              <div className="text-center p-4 bg-purple-50 rounded-lg">
-                <div className="text-2xl font-bold text-purple-600">
-                  {shockData.temperatureRatio.toFixed(2)}
-                </div>
-                <div className="text-sm text-gray-600">温度比 T₂/T₁</div>
-              </div>
-            </div>
-
-            <div className="mt-6 p-4 bg-orange-50 rounded-lg">
-              <h4 className="font-semibold text-orange-800 mb-2">激波特性</h4>
-              <div className="text-sm text-orange-700 space-y-1">
-                <p>• 激波是超声速流动中的强间断面，流动参数发生跳跃变化</p>
-                <p>• 激波角度随来流马赫数和楔形角度变化</p>
-                <p>• 通过激波后，马赫数降低，压力和温度升高</p>
-                <p>• 激波过程是不可逆的，总压降低</p>
-              </div>
-            </div>
-          </motion.div>
-        )}
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Text, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import { BoatMooringPhysics, createStandardBoatMooring } from './Physics/BoatMooringPhysics';
+import { CleanBoatMooringPhysics, createStandardBoatMooring } from './Physics/CleanBoatMooringPhysics';
 
 // 船体3D模型组件
 function BoatMesh({ position, rotation }: { position: [number, number, number], rotation: number }) {
@@ -76,7 +76,7 @@ function AnchorPoint({ position }: { position: [number, number, number] }) {
 }
 
 // 3D场景组件
-function Scene({ physics }: { physics: BoatMooringPhysics }) {
+function Scene({ physics }: { physics: CleanBoatMooringPhysics }) {
   const [systemState, setSystemState] = useState(physics.getSystemState());
 
   useFrame((state, delta) => {
@@ -150,7 +150,7 @@ function ControlPanel({
   physics, 
   onReset 
 }: { 
-  physics: BoatMooringPhysics, 
+  physics: CleanBoatMooringPhysics, 
   onReset: () => void 
 }) {
   const [currentSpeed, setCurrentSpeed] = useState(0.3);
@@ -324,7 +324,7 @@ function ControlPanel({
 
 // 主组件
 export default function BoatMooringSimulation() {
-  const [physics] = useState(() => createStandardBoatMooring(0.3, 10));
+  const [physics] = useState(() => createStandardBoatMooring());
 
   const resetSimulation = useCallback(() => {
     physics.setAngle(0);

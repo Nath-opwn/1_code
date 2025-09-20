@@ -33,7 +33,7 @@ const ExperimentSetupPage: React.FC = () => {
       id: 'reynolds',
       name: '雷诺实验',
       description: '观察层流到湍流的转换，理解雷诺数的物理意义',
-      path: '/lab/reynolds',
+      path: '/experiments/reynolds',
       icon: <Wind className="h-6 w-6" />,
       category: 'flow',
       difficulty: 'beginner',
@@ -44,7 +44,7 @@ const ExperimentSetupPage: React.FC = () => {
       id: 'bernoulli',
       name: '伯努利实验',
       description: '验证伯努利方程，观察压力与速度的关系',
-      path: '/lab/bernoulli',
+      path: '/experiments/bernoulli',
       icon: <BarChart3 className="h-6 w-6" />,
       category: 'flow',
       difficulty: 'intermediate',
@@ -55,7 +55,7 @@ const ExperimentSetupPage: React.FC = () => {
       id: 'drag',
       name: '阻力实验',
       description: '测试不同形状物体的阻力系数和绕流现象',
-      path: '/lab/drag',
+      path: '/experiments/drag',
       icon: <Zap className="h-6 w-6" />,
       category: 'resistance',
       difficulty: 'intermediate',
@@ -66,7 +66,7 @@ const ExperimentSetupPage: React.FC = () => {
       id: 'pitot-tube',
       name: '毕托管实验',
       description: '学习流速测量原理，掌握毕托管的使用方法',
-      path: '/lab/pitot-tube',
+      path: '/experiments/pitot',
       icon: <Gauge className="h-6 w-6" />,
       category: 'measurement',
       difficulty: 'advanced',
@@ -94,6 +94,51 @@ const ExperimentSetupPage: React.FC = () => {
       difficulty: 'intermediate',
       estimatedTime: '15-20分钟',
       features: ['传统文化', '稳定性分析', '古诗词结合', '物理原理']
+    },
+
+    {
+      id: 'venturi',
+      name: '文丘里效应',
+      description: '探索文丘里管中的流速和压力变化关系',
+      path: '/experiments/venturi',
+      icon: <BarChart3 className="h-6 w-6" />,
+      category: 'flow',
+      difficulty: 'intermediate',
+      estimatedTime: '15-20分钟',
+      features: ['文丘里管仿真', '压力梯度', '流速变化', '连续性方程']
+    },
+    {
+      id: 'boundary',
+      name: '边界层实验',
+      description: '观察物体表面附近的边界层发展和分离现象',
+      path: '/experiments/boundary',
+      icon: <Wind className="h-6 w-6" />,
+      category: 'flow',
+      difficulty: 'advanced',
+      estimatedTime: '20-25分钟',
+      features: ['边界层可视化', '分离点检测', '湍流转换', '壁面效应']
+    },
+    {
+      id: 'shock',
+      name: '激波实验',
+      description: '研究超声速流动中的激波现象和压缩波',
+      path: '/experiments/shock',
+      icon: <Zap className="h-6 w-6" />,
+      category: 'resistance',
+      difficulty: 'advanced',
+      estimatedTime: '25-30分钟',
+      features: ['激波可视化', '马赫数计算', '压力跳跃', '超声速流动']
+    },
+    {
+      id: 'ancient',
+      name: '古代水利工程',
+      description: '探索中国古代水利工程的流体力学原理',
+      path: '/experiments/ancient',
+      icon: <Anchor className="h-6 w-6" />,
+      category: 'cultural',
+      difficulty: 'intermediate',
+      estimatedTime: '20-25分钟',
+      features: ['古代智慧', '水利原理', '历史文化', '工程应用']
     }
   ];
 

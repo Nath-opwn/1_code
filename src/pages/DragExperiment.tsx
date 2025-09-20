@@ -465,13 +465,16 @@ const DragExperiment: React.FC = () => {
               <CardContent className="space-y-6">
                 <div>
                   <label className="text-sm font-medium">物体形状</label>
-                  <Select value={selectedShape} onValueChange={setSelectedShape}>
+                  <Select value={shapes[selectedShape]?.name} onValueChange={(shapeName) => {
+                    const shapeKey = Object.entries(shapes).find(([_, shape]) => shape.name === shapeName)?.[0];
+                    if (shapeKey) setSelectedShape(shapeKey);
+                  }}>
                     <SelectTrigger className="mt-2">
-                      <SelectValue />
+                      <SelectValue placeholder="选择物体形状" />
                     </SelectTrigger>
                     <SelectContent>
                       {Object.entries(shapes).map(([key, shape]) => (
-                        <SelectItem key={key} value={key}>
+                        <SelectItem key={key} value={shape.name}>
                           {shape.name} (Cd = {shape.cd})
                         </SelectItem>
                       ))}

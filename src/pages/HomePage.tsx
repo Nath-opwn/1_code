@@ -74,7 +74,7 @@ const HomePage: React.FC = () => {
       category: '超声速流动'
     },
     {
-      id: 'karman',
+      id: 'karman-vortex',
       title: '卡门涡街实验',
       description: '观察圆柱绕流的卡门涡街现象',
       icon: <Waves className="w-8 h-8" />,
@@ -145,7 +145,7 @@ const HomePage: React.FC = () => {
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <Link
-              to="/lab"
+              to="/experiment-setup"
               className="bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
             >
               开始实验
